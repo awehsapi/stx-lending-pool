@@ -54,3 +54,75 @@
     (ok amount)
   )
 )
+
+(define-public (withdraw (amount uint))
+  (let
+    (
+      (sender tx-sender)
+      (current-deposit (default-to {amount: u0, last-update: u0} (map-get? user-deposits {user: sender})))
+      (current-borrow (default-to {amount: u0, last-update: u0} (map-get? user-borrows {user: sender})))
+    )
+    (asserts! (not (var-get paused)) ERR_PAUSED)
+    (asserts! (> amount u0) ERR_INVALID_AMOUNT)
+    (asserts! (>= (get amount current-deposit) amount) ERR_INSUFFICIENT_BALANCE)
+    (asserts! (is-ok (check-collateral-ratio sender (- (get amount current-deposit) amount) (get amount current-borrow))) ERR_INSUFFICIENT_COLLATERAL)
+    (try! (as-contract (stx-transfer? amount tx-sender sender)))
+    (map-set user-deposits 
+      {user: sender} 
+      {
+        amount: (- (get amount current-deposit) amount), 
+        last-update: block-height
+      }
+    )
+    (var-set total-deposits (- (var-get total-deposits) amount))
+    (withdraw-event sender amount)
+    (ok amount)
+  )
+)
+
+(define-public (borrow (amount uint))
+  (let
+    (
+      (sender tx-sender)
+      (current-deposit (default-to {amount: u0, last-update: u0} (map-get? user-deposits {user: sender})))
+      (current-borrow (default-to {amount: u0, last-update: u0} (map-get? user-borrows {user: sender})))
+    )
+    (asserts! (not (var-get paused)) ERR_PAUSED)
+    (asserts! (> amount u0) ERR_INVALID_AMOUNT)
+    (asserts! (is-ok (check-collateral-ratio sender (get amount current-deposit) (+ (get amount current-borrow) amount))) ERR_INSUFFICIENT_COLLATERAL)
+    (try! (as-contract (stx-transfer? amount tx-sender sender)))
+    (map-set user-borrows 
+      {user: sender} 
+      {
+        amount: (+ (get amount current-borrow) amount), 
+        last-update: block-height
+      }
+    )
+    (var-set total-borrows (+ (var-get total-borrows) amount))
+    (borrow-event sender amount)
+    (ok amount)
+  )
+)
+
+(define-public (repay (amount uint))
+  (let
+    (
+      (sender tx-sender)
+      (current-borrow (default-to {amount: u0, last-update: u0} (map-get? user-borrows {user: sender})))
+    )
+    (asserts! (not (var-get paused)) ERR_PAUSED)
+    (asserts! (> amount u0) ERR_INVALID_AMOUNT)
+    (asserts! (>= (get amount current-borrow) amount) ERR_INSUFFICIENT_BALANCE)
+    (try! (stx-transfer? amount sender (as-contract tx-sender)))
+    (map-set user-borrows 
+      {user: sender} 
+      {
+        amount: (- (get amount current-borrow) amount), 
+        last-update: block-height
+      }
+    )
+    (var-set total-borrows (- (var-get total-borrows) amount))
+    (repay-event sender amount)
+    (ok amount)
+  )
+)
