@@ -126,3 +126,56 @@
     (ok amount)
   )
 )
+
+;; Read-only functions
+(define-read-only (get-deposit (user principal))
+  (ok (get amount (default-to {amount: u0, last-update: u0} (map-get? user-deposits {user: user})))))
+
+(define-read-only (get-borrow (user principal))
+  (ok (get amount (default-to {amount: u0, last-update: u0} (map-get? user-borrows {user: user})))))
+
+(define-read-only (check-collateral-ratio (user principal) (collateral uint) (debt uint))
+  (if (is-eq debt u0)
+    (ok true)
+    (if (>= (* collateral u100) (* debt (var-get min-collateral-ratio)))
+      (ok true)
+      (err ERR_INSUFFICIENT_COLLATERAL))))
+
+(define-read-only (get-total-deposits)
+  (ok (var-get total-deposits)))
+
+(define-read-only (get-total-borrows)
+  (ok (var-get total-borrows)))
+
+;; Admin functions
+(define-public (set-collateral-ratio (new-ratio uint))
+  (begin
+    (asserts! (is-eq tx-sender CONTRACT_OWNER) ERR_UNAUTHORIZED)
+    ;; Ensure the new ratio is between 100% and 500%
+    (asserts! (and (>= new-ratio u100) (<= new-ratio u500)) (err u105))
+    (var-set min-collateral-ratio new-ratio)
+    (ok new-ratio)))
+
+(define-public (set-interest-rate (new-rate uint))
+  (begin
+    (asserts! (is-eq tx-sender CONTRACT_OWNER) ERR_UNAUTHORIZED)
+    ;; Ensure the new rate is between 0% and 100%
+    (asserts! (<= new-rate u100) (err u106))
+    (var-set interest-rate new-rate)
+    (ok new-rate)))
+
+(define-public (toggle-pause)
+  (begin
+    (asserts! (is-eq tx-sender CONTRACT_OWNER) ERR_UNAUTHORIZED)
+    (var-set paused (not (var-get paused)))
+    (ok (var-get paused))))
+
+;; Private functions
+(define-private (calculate-interest (principal uint) (blocks uint))
+  (let ((interest-per-block (/ (var-get interest-rate) (* u365 u144))))
+    (/ (* principal interest-per-block blocks) u10000)))
+
+;; Contract initialization
+(begin
+  (try! (stx-transfer? u1000000000 CONTRACT_OWNER (as-contract tx-sender)))
+  (ok true))
